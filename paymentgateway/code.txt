@@ -1,0 +1,134 @@
+#include <iostream>
+#include <string>
+#include <memory>
+#include <variant>
+#include <optional>
+#include <stdexcept>
+
+// Structure to encapsulate the final response from a gateway
+struct PaymentResponse {
+    bool isSuccess;
+    std::string transactionId;
+    std::string message;
+    int responseCode; // e.g., 1 = Approved, 2 = Declined, 3 = Error
+};
+
+// Abstract Base Class / Interface for Payment Methods
+class IPaymentMethod {
+public:
+    virtual ~IPaymentMethod() = default;
+    virtual PaymentResponse processPayment(double amount) = 0;
+};
+
+// Concrete Strategy 1: Credit Card Processing via External API
+class CreditCardProcessor : public IPaymentMethod {
+private:
+    std::string cardNumber;
+    std::string cardHolder;
+    std::string expiryDate;
+    std::string cvv;
+
+    // Helper method simulating payload encryption and SSL data transmission
+    bool transmitSecurely(const std::string& payload) {
+        // In real environments, implement OpenSSL or libcurl HTTPS calls here
+        return true; 
+    }
+
+public:
+    CreditCardProcessor(std::string num, std::string holder, std::string expiry, std::string code)
+        : cardNumber(std::move(num)), cardHolder(std::move(holder)), 
+          expiryDate(std::move(expiry)), cvv(std::move(code)) {
+            if (cardNumber.length() < 13) {
+                throw std::invalid_argument("Invalid credit card length.");
+            }
+        }
+
+    PaymentResponse processPayment(double amount) override {
+        std::cout << "[CreditCard] Initializing secure handshake with Card Network...\n";
+        
+        // Simulating payload assembly
+        std::string payload = "amt=" + std::to_string(amount) + "&cc=" + cardNumber.substr(0, 4) + "...";
+        
+        if (!transmitSecurely(payload)) {
+            return {false, "", "Network Timeout or SSL handshake failure.", 3};
+        }
+
+        // Fraud checks & bank authentication mock response
+        if (amount > 10000.0) { // Simulating a decline limit for demonstration
+            return {false, "TXN_CC_ERR_99", "Declined: Insufficient Funds / Flagged High Risk.", 2};
+        }
+
+        return {true, "TXN_CC_87492015", "Payment authorized successfully.", 1};
+    }
+};
+
+// Concrete Strategy 2: PayPal API Integration
+class PayPalProcessor : public IPaymentMethod {
+private:
+    std::string emailAccount;
+    std::string oauthToken;
+
+public:
+    PayPalProcessor(std::string email, std::string token)
+        : emailAccount(std::move(email)), oauthToken(std::move(token)) {}
+
+    PaymentResponse processPayment(double amount) override {
+        std::cout << "[PayPal] Resolving express checkout tokens for: " << emailAccount << "\n";
+        
+        if (oauthToken.empty()) {
+            return {false, "", "Unauthorized: Invalid API credentials.", 3};
+        }
+
+        return {true, "TXN_PP_99104823", "PayPal capture operation completed.", 1};
+    }
+};
+
+// Payment Engine (The Gateway Orchestrator using Dependency Injection)
+class PaymentGatewayEngine {
+public:
+    PaymentResponse executeTransaction(std::unique_ptr<IPaymentMethod> paymentMethod, double amount) {
+        if (amount <= 0.0) {
+            return {false, "", "Transaction rejected: Invalid amount specified.", 3};
+        }
+        
+        try {
+            // Polymorphic call execution
+            return paymentMethod->processPayment(amount);
+        } catch (const std::exception& e) {
+            return {false, "", std::string("Internal Exception: ") + e.what(), 3};
+        }
+    }
+};
+
+// Driver Program Execution
+int main() {
+    PaymentGatewayEngine gateway;
+
+    std::cout << "--- TRANSACTION 1: Visa Credit Card ---" << std::endl;
+    try {
+        auto visaCard = std::make_unique<CreditCardProcessor>(
+            "4111111111111111", "Jane Doe", "12/29", "123"
+        );
+        
+        PaymentResponse response1 = gateway.executeTransaction(std::move(visaCard), 250.75);
+        
+        std::cout << "Status: " << (response1.isSuccess ? "SUCCESS" : "FAILED") << "\n"
+                  << "Txn ID: " << response1.transactionId << "\n"
+                  << "Message: " << response1.message << "\n\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Initialization Error: " << e.what() << "\n\n";
+    }
+
+    std::cout << "--- TRANSACTION 2: PayPal Digital Wallet ---" << std::endl;
+    auto payPalWallet = std::make_unique<PayPalProcessor>(
+        "merchant.payments@corp.com", "bearer_token_abc123XYZ"
+    );
+    
+    PaymentResponse response2 = gateway.executeTransaction(std::move(payPalWallet), 1420.00);
+    
+    std::cout << "Status: " << (response2.isSuccess ? "SUCCESS" : "FAILED") << "\n"
+              << "Txn ID: " << response2.transactionId << "\n"
+              << "Message: " << response2.message << "\n\n";
+
+    return 0;
+}
