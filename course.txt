@@ -1,0 +1,6 @@
+these are the available courses in our university.
+
+python
+data structure
+dbms
+cn
